@@ -9,13 +9,20 @@ st.set_page_config(page_title="Bike Sharing Dashboard", layout="wide")
 
 #Fungsi Visualisasi
 def plot_season_rentals(df):
-    season_avg = df.groupby("season")["cnt"].mean()
+    season_labels = {1: "Spring (1)", 2: "Summer (2)", 3: "Fall (3)", 4: "Winter (4)"}
+    
+    # Agregasi dengan Pandas terlebih dahulu agar aman dari bug Seaborn
+    season_avg = df.groupby("season")["cnt"].mean().reset_index()
+    season_avg["season_label"] = season_avg["season"].map(season_labels)
     
     fig = plt.figure(figsize=(8, 6))
-    plt.bar(
-        x=["Spring (1)", "Summer (2)", "Fall (3)", "Winter (4)"],
-        height=season_avg.values,
-        color=["#6baed6", "#4292c6", "#2171b5", "#084594"]
+    sns.barplot(
+        data=season_avg,
+        x="season_label",
+        y="cnt",
+        hue="season_label",
+        palette="Blues_d",
+        legend=False
     )
     plt.title("Rata-rata Penyewaan Sepeda Berdasarkan Musim", fontsize=13, fontweight="bold")
     plt.xlabel("Musim", fontsize=11)
@@ -23,13 +30,24 @@ def plot_season_rentals(df):
     st.pyplot(fig)
 
 def plot_weather_rentals(df):
-    weather_avg = df.groupby("weathersit")["cnt"].mean()
+    weather_labels = {
+        1: "Cerah / Berawan (1)", 
+        2: "Berkabut / Mendung (2)", 
+        3: "Hujan Ringan / Salju (3)",
+        4: "Hujan Lebat / Ekstrem (4)"
+    }
+    
+    weather_avg = df.groupby("weathersit")["cnt"].mean().reset_index()
+    weather_avg["weather_label"] = weather_avg["weathersit"].map(weather_labels)
     
     fig = plt.figure(figsize=(8, 6))
-    plt.bar(
-        x=["Cerah / Berawan (1)", "Berkabut / Mendung (2)", "Hujan Ringan / Salju (3)"],
-        height=weather_avg.values,
-        color=["#fd8d3c", "#e6550d", "#a63603"]
+    sns.barplot(
+        data=weather_avg,
+        x="weather_label",
+        y="cnt",
+        hue="weather_label",
+        palette="Oranges_d",
+        legend=False
     )
     plt.title("Rata-rata Penyewaan Sepeda Berdasarkan Cuaca", fontsize=13, fontweight="bold")
     plt.xlabel("Kondisi Cuaca", fontsize=11)
@@ -38,38 +56,37 @@ def plot_weather_rentals(df):
 
 def plot_hourly_comparison(df):
     hourly_comparison = df.pivot_table(
-    index="hr",
-    columns="workingday",
-    values="cnt",
-    aggfunc="mean"
+        index="hr",
+        columns="workingday",
+        values="cnt",
+        aggfunc="mean"
     )
+    
     fig = plt.figure(figsize=(14, 6))
-    plt.plot(
-        hourly_comparison.index,
-        hourly_comparison[0],
-        marker="o",
-        linewidth=2,
-        color="red",
-        label="Hari Libur"
-    )
-    plt.plot(
-        hourly_comparison.index,
-        hourly_comparison[1],
-        marker="o",
-        linewidth=2,
-        color="blue",
-        label="Hari Kerja"
-    )
-
-    plt.title("Perbandingan Waktu Penyewaan Sepeda antara Hari Kerja dan Hari Libur", fontsize=13, fontweight="bold")
-    plt.xlabel("Jam", fontsize=11)
-    plt.ylabel("Rata-rata Penyewaan Harian", fontsize=11)
-
-    plt.xticks(range(0, 24), fontsize=11)
-    plt.yticks(fontsize=11)
-
-    plt.legend(title="Status Hari", fontsize=11)
-    plt.grid(True, alpha=0.5)
+    if 0 in hourly_comparison.columns:
+        plt.plot(
+            hourly_comparison.index,
+            hourly_comparison[0],
+            label="Akhir Pekan / Libur (0)",
+            color="red",
+            linewidth=2,
+            marker="o"
+        )
+    if 1 in hourly_comparison.columns:
+        plt.plot(
+            hourly_comparison.index,
+            hourly_comparison[1],
+            label="Hari Kerja (1)",
+            color="blue",
+            linewidth=2,
+            marker="o"
+        )
+    plt.title("Perbandingan Waktu Penyewaan Sepeda antara Hari Kerja dan Hari Libur", fontsize=15, fontweight="bold")
+    plt.xlabel("Jam", fontsize=12)
+    plt.ylabel("Rata-rata Penyewaan Sepeda", fontsize=12)
+    plt.xticks(range(0, 24))
+    plt.legend(title="Status Hari")
+    plt.grid(True, linestyle="--", alpha=0.5)
     st.pyplot(fig)
 
 
@@ -119,48 +136,87 @@ with st.sidebar:
     st.markdown("---")
     st.info("**Info:** Dashboard ini menampilkan hasil analisis penyewaan sepeda (Bike Sharing) tahun 2011-2012")
 
+    #Filter 1: Rentang Tanggal
+    min_date = day_df["dteday"].min().date()
+    max_date = day_df["dteday"].max().date()
+    
+    date_range = st.date_input(
+        label="Pilih Rentang Tanggal:",
+        value=(min_date, max_date),
+        min_value=min_date,
+        max_value=max_date
+    )
+    
+    #Filter 2: Pilihan Musim
+    season_options = {1: "Spring (1)", 2: "Summer (2)", 3: "Fall (3)", 4: "Winter (4)"}
+    selected_seasons = st.multiselect(
+        label="Pilih Musim:",
+        options=list(season_options.keys()),
+        default=list(season_options.keys()),
+        format_func=lambda x: season_options[x]
+    )
+
+#Filtering Data
+if isinstance(date_range, tuple) and len(date_range) == 2:
+    start_date, end_date = date_range
+else:
+    start_date, end_date = min_date, max_date
+
+filtered_day_df = day_df[
+    (day_df["dteday"].dt.date >= start_date) & 
+    (day_df["dteday"].dt.date <= end_date) &
+    (day_df["season"].isin(selected_seasons))
+]
+
+filtered_hour_df = hour_df[
+    (hour_df["dteday"].dt.date >= start_date) & 
+    (hour_df["dteday"].dt.date <= end_date) &
+    (hour_df["season"].isin(selected_seasons))
+]
 
 #Render Halaman
 if st.session_state.page == "Visualisasi Data":
     st.title("Bike Sharing Analysis Dashboard")
-    st.markdown("Dashboard ini menampilkan tren dan pola penyewaan sepeda berdasarkan musim, cuaca, dan jam operasional.")
+    st.markdown("Dashboard interaktif tren dan pola penyewaan sepeda berdasarkan musim, cuaca, dan jam operasional (2011–2012).")
+    
+    if filtered_day_df.empty:
+        st.warning("Tidak ada data untuk kombinasi filter tanggal dan musim yang dipilih. Silakan ubah filter di sidebar.")
+    else:
+        col_m1, col_m2, col_m3 = st.columns(3)
+        with col_m1:
+            st.metric("Total Penyewaan", f"{filtered_day_df['cnt'].sum():,}")
+        with col_m2:
+            st.metric("Rata-rata Penyewaan / Hari", f"{int(filtered_day_df['cnt'].mean()):,}")
+        with col_m3:
+            st.metric("Total Hari Terpilih", f"{len(filtered_day_df)} Hari")
+            
+        st.markdown("---")
 
-    #Metrik Ringkasan
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-        st.metric("Total Penyewaan (2011-2012)", f"{day_df['cnt'].sum():,}")
-    with col_m2:
-        st.metric("Rata-rata Penyewaan / Hari", f"{int(day_df['cnt'].mean()):,}")
-    with col_m3:
-        st.metric("Total Hari Tercatat", f"{len(day_df)} Hari")
-        
-    st.markdown("---")
+        #Pertanyaan 1
+        st.markdown("### 1. Pengaruh Musim dan Kondisi Cuaca terhadap Rata-rata Penyewaan Sepeda")
+        col1, col2 = st.columns(2)
+        with col1:
+            plot_season_rentals(filtered_day_df)
+        with col2:
+            plot_weather_rentals(filtered_day_df)
 
-    #Pertanyaan Bisnis 1
-    st.markdown("### 1. Bagaimana pengaruh musim dan kondisi cuaca terhadap penyewaan sepeda?")
-    col1, col2 = st.columns(2)
-    with col1:
-        plot_season_rentals(day_df)
-    with col2:
-        plot_weather_rentals(day_df)
+        st.markdown("---")
 
-    st.markdown("---")
-
-    # Pertanyaan Bisnis 2
-    st.markdown("### 2. Pada jam berapa saja puncak penyewaan terjadi pada Hari Kerja vs Hari Libur?")
-    plot_hourly_comparison(hour_df)
+        #Pertanyaan 2
+        st.markdown("### 2. Perbandingan Pola Jam Sibuk Penyewaan Sepeda (Hari Kerja vs Akhir Pekan/Libur)")
+        plot_hourly_comparison(filtered_hour_df)
 
 elif st.session_state.page == "Conclusion & Recommendation":
     st.title("Conclusion & Recommendation")
     
     st.subheader("Conclusion")
     st.markdown("""
-    - **Pengaruh Musim & Cuaca:** Musim gugur (*Fall*) mencatat rata-rata penyewaan harian tertinggi (~5.644 sepeda/hari), sedangkan musim semi (*Spring*) terendah (~2.604 sepeda/hari). Kondisi cuaca cerah/berawan tipis mendominasi penyewaan, sementara hujan ringan/salju menurunkan penyewaan hingga lebih dari 50%.
-    - **Pola Jam Sibuk:** Pada hari kerja, lonjakan penyewaan terjadi pada jam komuter (pukul **08.00 pagi** dan **17.00–18.00 sore**). Sebaliknya, pada akhir pekan atau hari libur, penyewaan memuncak secara landai di siang hari (pukul **12.00–16.00**).
+    - **Conclusion Pertanyaan 1 (Pengaruh Musim & Cuaca):** Musim Gugur (*Fall*) mencatatkan rata-rata penyewaan tertinggi sebesar **5.644 sepeda/hari**, diikuti Musim Panas (**4.992 sepeda/hari**), Musim Dingin (**4.728 sepeda/hari**), dan terendah pada Musim Semi (*Spring*) sebesar **2.604 sepeda/hari**. Dari sisi cuaca, kondisi Cerah/Berawan Tipis mendominasi dengan rata-rata **4.877 sepeda/hari**, menurun saat Berkabut/Mendung (**4.036 sepeda/hari**), dan anjlok drastis saat Hujan Ringan/Salju (**1.803 sepeda/hari**).
+    - **Conclusion Pertanyaan 2 (Pola Jam Sibuk Hari Kerja vs Akhir Pekan/Libur):** Pada hari kerja, penyewaan memuncak tajam pada jam berangkat kerja pukul **08.00** (**477 sepeda/jam**) dan pulang kerja pukul **17.00–18.00** (**525 dan 492 sepeda/jam**), jauh melampaui jam non-sibuk siang hari (**200–254 sepeda/jam**). Sebaliknya, pada akhir pekan/libur, puncak terjadi secara landai di siang hingga sore hari pukul **12.00–16.00** (**353–373 sepeda/jam**).
     """)
     
     st.subheader("Rekomendasi Action Item")
     st.markdown("""
-    - **Optimalisasi Armada di Jam Komuter:** Menambah ketersediaan unit sepeda di area stasiun transit dan pemukiman sebelum pukul 07.00 pagi serta di area perkantoran/kampus sebelum pukul 16.30 sore pada hari kerja.
-    - **Strategi Promosi & Maintenance Musiman:** Memberikan promo khusus selama musim sepi (*Spring*) untuk menjaga tingkat okupansi, sekaligus menjadwalkan perawatan besar (*maintenance*) armada pada musim tersebut agar siap menghadapi puncak permintaan di musim panas (*Summer*) dan gugur (*Fall*).
+    - **Optimalisasi Alokasi & Rebalancing Armada di Jam Komuter:** Menambah stok unit sepeda di stasiun transit dan pemukiman sebelum pukul 07.00 pagi serta di kawasan perkantoran/kampus sebelum pukul 16.30 sore pada hari kerja. Pada akhir pekan, armada difokuskan di area taman kota dan jalur rekreasi mulai pukul 11.00 siang.
+    - **Strategi Promosi & Maintenance Musiman:** Memberikan promo diskon khusus selama musim sepi (*Spring*) dan hari mendung untuk menjaga tingkat okupansi, sekaligus menjadwalkan perawatan besar (*maintenance*) unit sepeda pada periode *Spring* agar seluruh unit siap beroperasi maksimal saat memasuki musim puncak (*Summer* dan *Fall*).
     """)
